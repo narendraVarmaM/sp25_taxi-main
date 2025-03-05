@@ -1,5 +1,6 @@
 import sys
 from pathlib import Path
+import pytz
 
 parent_dir = str(Path(__file__).parent.parent)
 sys.path.append(parent_dir)
@@ -215,9 +216,17 @@ def load_shape_data_file(
 
 # st.set_page_config(layout="wide")
 
-current_date = pd.Timestamp.now(tz="Etc/UTC")
+
+#current_date = pd.Timestamp.now(tz="Etc/UTC")
+#st.title(f"New York Yellow Taxi Cab Demand Next Hour")
+#st.header(f'{current_date.strftime("%Y-%m-%d %H:%M:%S")}')
+
+# Convert UTC to New York Time (EST/EDT)
+nyc_tz = pytz.timezone("America/New_York")
+current_date = pd.Timestamp.now(tz="UTC").tz_convert(nyc_tz)
+
 st.title(f"New York Yellow Taxi Cab Demand Next Hour")
-st.header(f'{current_date.strftime("%Y-%m-%d %H:%M:%S")}')
+st.header(f'{current_date.strftime("%Y-%m-%d %H:%M:%S %Z")}')  # Added timezone
 
 progress_bar = st.sidebar.header("Working Progress")
 progress_bar = st.sidebar.progress(0)
@@ -277,15 +286,53 @@ with st.spinner(text="Plot predicted rides demand"):
     st.sidebar.write("Finished plotting taxi rides demand")
     progress_bar.progress(4 / N_STEPS)
 
+# st.dataframe(predictions.sort_values("predicted_demand", ascending=False).head(10))
+# top10 = (
+#     predictions.sort_values("predicted_demand", ascending=False)
+#     .head(10)["pickup_location_id"]
+#     .to_list()
+# )
+# for location_id in top10:
+#     fig = plot_prediction(
+#         features=features[features["pickup_location_id"] == location_id],
+#         prediction=predictions[predictions["pickup_location_id"] == location_id],
+#     )
+#     st.plotly_chart(fig, theme="streamlit", use_container_width=True)
+    
+# Load lookup table
+lookup_table_path = DATA_DIR / "taxi_zone_lookup.csv"
+lookup_table = pd.read_csv(lookup_table_path, usecols=["LocationID", "Zone"])
+
+# Merge predictions with lookup table to get location name
+predictions = pd.merge(predictions, lookup_table, left_on="pickup_location_id", right_on="LocationID", how="left")
+predictions.drop(columns=["LocationID"], inplace=True)
+
 st.dataframe(predictions.sort_values("predicted_demand", ascending=False).head(10))
+
 top10 = (
     predictions.sort_values("predicted_demand", ascending=False)
     .head(10)["pickup_location_id"]
     .to_list()
 )
+
 for location_id in top10:
     fig = plot_prediction(
         features=features[features["pickup_location_id"] == location_id],
         prediction=predictions[predictions["pickup_location_id"] == location_id],
     )
     st.plotly_chart(fig, theme="streamlit", use_container_width=True)
+ 
+unique_zones = predictions["Zone"].unique().tolist()
+selected_zone = st.selectbox("Select Zone", ["All Zones"] + unique_zones)
+
+# Plot predictions for selected zone
+if selected_zone != "All Zones":
+    zone_predictions = predictions[predictions["Zone"] == selected_zone]
+    zone_location_ids = zone_predictions["pickup_location_id"].to_list()
+
+    for location_id in zone_location_ids:
+        fig = plot_prediction(
+            features=features[features["pickup_location_id"] == location_id],
+            prediction=predictions[predictions["pickup_location_id"] == location_id],
+        )
+        st.plotly_chart(fig, theme="streamlit", use_container_width=True)
